@@ -10,7 +10,7 @@ import {
   EDITOR_PAGE_UNLOADED,
   UPDATE_FIELD_EDITOR
 } from '../constants/actionTypes';
-const Joi = require('joi');
+import Joi from 'joi-browser';
 
 const mapStateToProps = state => ({
   ...state.editor
@@ -90,7 +90,7 @@ const Editor = props => {
 			body: Joi.string()
 						.trim()
 						// mininum word count
-						.regex(/(\S+\s+){19,}/gi)
+						.regex(/(\S+\s+){19,}/)
 						// no html tags
 						.regex(/^[^<>]+$/)
 						.required()
