@@ -1,5 +1,5 @@
 import ListErrors from './ListErrors';
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import agent from '../agent';
 import { connect } from 'react-redux';
 import {
@@ -10,6 +10,7 @@ import {
   EDITOR_PAGE_UNLOADED,
   UPDATE_FIELD_EDITOR
 } from '../constants/actionTypes';
+const Joi = require('joi');
 
 const mapStateToProps = state => ({
   ...state.editor
@@ -30,75 +31,143 @@ const mapDispatchToProps = dispatch => ({
     dispatch({ type: UPDATE_FIELD_EDITOR, key, value })
 });
 
-class Editor extends React.Component {
-  constructor() {
-    super();
+const Editor = props => {
+	
 
-    const updateFieldEvent =
-      key => ev => this.props.onUpdateField(key, ev.target.value);
-    this.changeTitle = updateFieldEvent('title');
-    this.changeDescription = updateFieldEvent('description');
-    this.changeBody = updateFieldEvent('body');
-    this.changeTagInput = updateFieldEvent('tagInput');
+    const updateFieldEvent = key => ev => props.onUpdateField(key, ev.target.value);
+    const changeTitle = updateFieldEvent('title');
+    const changeDescription = updateFieldEvent('description');
+    const changeBody = updateFieldEvent('body');
+    const changeTagInput = updateFieldEvent('tagInput');
 
-    this.watchForEnter = ev => {
+    const watchForEnter = ev => {
       if (ev.keyCode === 13) {
         ev.preventDefault();
-        this.props.onAddTag();
+        props.onAddTag();
       }
     };
 
-    this.removeTagHandler = tag => () => {
-      this.props.onRemoveTag(tag);
+    const removeTagHandler = tag => () => {
+      props.onRemoveTag(tag);
     };
 
-    this.submitForm = ev => {
+	function errorMessagePerType(error, fieldName) {
+	let result = '';
+
+	switch (error.type) {
+			case "any.empty":
+			result = `${fieldName} should not be empty!`;
+			break;
+			case "any.required":
+			result = `${fieldName} is a required field!`;
+			break;
+			case "any.invalid":
+			result = `${fieldName} and title cannot be the same!`;
+			break;
+			case "string.regex.base":
+			result = `${fieldName} should be min 20 words and cannot contain HTML tags!`;
+			break;
+		default:
+			break;
+	}
+	return result;
+};
+
+
+
+		const schema = {
+			title: Joi.string()
+						.required()
+						.error(err => {
+							return { message: errorMessagePerType(err[0], 'title') }
+						}),
+			description: Joi.string()
+						.disallow(Joi.ref('title'))
+						.required()
+						.error(err => {
+							return { message: errorMessagePerType(err[0], 'description') }
+						}),
+			body: Joi.string()
+						.trim()
+						// mininum word count
+						.regex(/(\S+\s+){19,}/gi)
+						// no html tags
+						.regex(/^[^<>]+$/)
+						.required()
+						.error(err => {
+							return { message: errorMessagePerType(err[0], 'body') }
+						})
+	}
+
+		function validate() {
+			const options = { abortEarly: false };
+
+			const formFields = {
+				...{ title: props.title },
+				...{ description: props.description },
+				...{ body: props.body }
+			};
+
+			const { error } = Joi.validate(formFields, schema, options);
+			if (!error) return null;
+
+			const errors = {};
+
+			for (let item of error.details)
+				errors[item.path[0]] = [item.message];
+			return errors;
+	}
+
+    const submitForm = ev => {
       ev.preventDefault();
+
       const article = {
-        title: this.props.title,
-        description: this.props.description,
-        body: this.props.body,
-        tagList: this.props.tagList
+        title: props.title,
+        description: props.description,
+        body: props.body,
+        tagList: props.tagList
       };
 
-      const slug = { slug: this.props.articleSlug };
-      const promise = this.props.articleSlug ?
+			if (validate()) {
+				article['error'] = true
+				article['errors'] = validate()
+			};
+
+			const slug = { slug: props.articleSlug };
+      const promise = props.articleSlug ?
         agent.Articles.update(Object.assign(article, slug)) :
         agent.Articles.create(article);
 
-      this.props.onSubmit(promise);
+			props.onSubmit(validate() ? article : promise);
     };
-  }
+  
 
-  componentWillReceiveProps(nextProps) {
-    if (this.props.match.params.slug !== nextProps.match.params.slug) {
-      if (nextProps.match.params.slug) {
-        this.props.onUnload();
-        return this.props.onLoad(agent.Articles.get(this.props.match.params.slug));
-      }
-      this.props.onLoad(null);
-    }
-  }
+		useMemo(() => {
+		 //componentWillReceiveProps
+		if (props.match.params.slug) {
+			props.onUnload();
+			return props.onLoad(agent.Articles.get(props.match.params.slug));
+		}
+      props.onLoad(null);
+   },[...props]);
 
-  componentWillMount() {
-    if (this.props.match.params.slug) {
-      return this.props.onLoad(agent.Articles.get(this.props.match.params.slug));
-    }
-    this.props.onLoad(null);
-  }
 
-  componentWillUnmount() {
-    this.props.onUnload();
-  }
+	useEffect(() => {
+		// componentWillMount
+		if (props.match.params.slug) 
+			return props.onLoad(agent.Articles.get(props.match.params.slug));
+		props.onLoad(null);
+		//componentWillUnmount
+		return () => props.onUnload();
+}, [])
 
-  render() {
     return (
       <div className="editor-page">
         <div className="container page">
           <div className="row">
             <div className="col-md-10 offset-md-1 col-xs-12">
 
-              <ListErrors errors={this.props.errors}></ListErrors>
+              <ListErrors errors={props.errors}></ListErrors>
 
               <form>
                 <fieldset>
@@ -108,8 +177,10 @@ class Editor extends React.Component {
                       className="form-control form-control-lg"
                       type="text"
                       placeholder="Article Title"
-                      value={this.props.title}
-                      onChange={this.changeTitle} />
+                      value={props.title || ""}
+                      onChange={changeTitle}
+											required
+											/>
                   </fieldset>
 
                   <fieldset className="form-group">
@@ -117,8 +188,10 @@ class Editor extends React.Component {
                       className="form-control"
                       type="text"
                       placeholder="What's this article about?"
-                      value={this.props.description}
-                      onChange={this.changeDescription} />
+                      value={props.description || ""}
+                      onChange={changeDescription}
+											required
+											 />
                   </fieldset>
 
                   <fieldset className="form-group">
@@ -126,8 +199,10 @@ class Editor extends React.Component {
                       className="form-control"
                       rows="8"
                       placeholder="Write your article (in markdown)"
-                      value={this.props.body}
-                      onChange={this.changeBody}>
+                      value={props.body}
+                      onChange={changeBody}
+											required
+											>
                     </textarea>
                   </fieldset>
 
@@ -136,17 +211,17 @@ class Editor extends React.Component {
                       className="form-control"
                       type="text"
                       placeholder="Enter tags"
-                      value={this.props.tagInput}
-                      onChange={this.changeTagInput}
-                      onKeyUp={this.watchForEnter} />
+                      value={props.tagInput || ""}
+                      onChange={changeTagInput}
+                      onKeyUp={watchForEnter} />
 
                     <div className="tag-list">
                       {
-                        (this.props.tagList || []).map(tag => {
+                        (props.tagList || []).map(tag => {
                           return (
                             <span className="tag-default tag-pill" key={tag}>
                               <i  className="ion-close-round"
-                                  onClick={this.removeTagHandler(tag)}>
+                                  onClick={removeTagHandler(tag)}>
                               </i>
                               {tag}
                             </span>
@@ -159,8 +234,8 @@ class Editor extends React.Component {
                   <button
                     className="btn btn-lg pull-xs-right btn-primary"
                     type="button"
-                    disabled={this.props.inProgress}
-                    onClick={this.submitForm}>
+                    disabled={props.inProgress}
+                    onClick={submitForm}>
                     Publish Article
                   </button>
 
@@ -172,7 +247,6 @@ class Editor extends React.Component {
         </div>
       </div>
     );
-  }
 }
 
 export default connect(mapStateToProps, mapDispatchToProps)(Editor);

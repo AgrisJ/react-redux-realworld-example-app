@@ -26,7 +26,7 @@ export default (state = {}, action) => {
       return {
         ...state,
         inProgress: null,
-        errors: action.error ? action.payload.errors : null
+        errors: action.payload.error || action.error ? action.payload.errors : null
       };
     case ASYNC_START:
       if (action.subtype === ARTICLE_SUBMITTED) {
